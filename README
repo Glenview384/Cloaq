@@ -1,35 +1,28 @@
-# Cloaq (UDAL)
+Cloaq (UDAL)
 
-> **Universal Decentralized Anonymity Layer**
-> A protocol-agnostic privacy transport that decouples identity from connectivity.
+Universal Decentralized Anonymity Layer
+A protocol-agnostic privacy transport that decouples identity from connectivity.
 
-## Features
+Features
+* Identity Decoupling: No IP-based tracking.
+* Decentralized: No central authorities; every node is a relay.
+* High Performance: Near-WireGuard speeds with onion routing.
+* Protocol Agnostic: Supports TCP, UDP, and P2P traffic.
 
--   **Identity Decoupling**: No IP-based tracking.
--   **Decentralized**: No central authorities; every node is a relay.
--   **High Performance**: Near-WireGuard speeds with onion routing.
--   **Protocol Agnostic**: Supports TCP, UDP, and P2P traffic.
-
-## Usage
-
-```bash
-# Build
+Usage
+Build:
 go build -o cloaq src/*.go
 
-# Run (requires root for TUN interface)
+Run (requires root for TUN interface):
 sudo ./cloaq run
-```
 
-## Contributing
+Contributing
+See CONTRIBUTING for details.
+All contributors must sign the CLA.
 
-See [CONTRIBUTING](CONTRIBUTING) for details.
-All contributors must sign the [CLA](CLA).
+License
+Licensed under the Dragonfly Public License v1.0.
+See LICENSE and NOTICE for details.
 
-## License
-
-Licensed under the **Dragonfly Public License v1.0**.
-See [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.
-
-### Mandatory Source Header
-
-All source files must include the header defined in the [NOTICE](NOTICE) file.
+Mandatory Source Header
+All source files must include the header defined in the NOTICE file.
