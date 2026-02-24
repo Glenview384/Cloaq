@@ -3,11 +3,9 @@
 package main
 
 import (
-	"cloaq/src/network"
 	"log"
 	"net"
 	"os"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -72,27 +70,6 @@ func CreateRouter(tunFileDescriptor *os.File) {
 	}
 }
 
-func CreateIPv6PacketListener(tun network.Tunnel) {
-	buf := make([]byte, 65535)
-	for {
-		n, err := tun.Read(buf)
-		if err != nil {
-			continue
-		}
-
-		packet := buf[:n]
-		if len(packet) < 40 {
-			continue
-		}
-		if (packet[0] >> 4) != 6 {
-			continue
-		}
-
-		payload := packet[40:]
-		log.Printf("Payload (%d bytes): % x\n", len(payload), payload)
-	}
-}
-
 func NewTUN(name string) *os.File {
 	fileDescriptor, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
 
@@ -147,23 +124,22 @@ func SendPacket(ifName string, packet []byte) {
 		return
 	}
 
-	fd, err := syscall.Socket(
-		syscall.AF_PACKET,
-		syscall.SOCK_RAW,
-		int(htons(0x86DD)),
+	fd, err := unix.Socket(
+		unix.AF_PACKET,
+		unix.SOCK_RAW,
+		int(htons(0x86DD)), // ETH_P_IPV6
 	)
 	if err != nil {
 		return
 	}
-	defer syscall.Close(fd)
+	defer unix.Close(fd)
 
-	sll := &syscall.SockaddrLinklayer{
+	sll := &unix.SockaddrLinklayer{
 		Ifindex:  iface.Index,
 		Protocol: htons(0x86DD),
 	}
 
-	// Kernel will add L2 header automatically
-	syscall.Sendto(fd, packet, 0, sll)
+	_ = unix.Sendto(fd, packet, 0, sll)
 }
 
 func htons(i uint16) uint16 {

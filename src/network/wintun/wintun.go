@@ -1,16 +1,10 @@
 //go:build windows
 
-/* SPDX-License-Identifier: MIT
- *
- * Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.
- */
-
 package wintun
 
 import (
 	"log"
 	"runtime"
-	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -31,7 +25,9 @@ type Adapter struct {
 }
 
 var (
-	modwintun                         = newLazyDLL("wintun.dll", setupLogger)
+	modwintun = windows.NewLazyDLL("wintun.dll")
+
+	procWintunSetLogger               = modwintun.NewProc("WintunSetLogger")
 	procWintunCreateAdapter           = modwintun.NewProc("WintunCreateAdapter")
 	procWintunOpenAdapter             = modwintun.NewProc("WintunOpenAdapter")
 	procWintunCloseAdapter            = modwintun.NewProc("WintunCloseAdapter")
@@ -53,7 +49,7 @@ func logMessage(level loggerLevel, timestamp uint64, msg *uint16) int {
 	return 0
 }
 
-func setupLogger(dll *lazyDLL) {
+func setupLogger() {
 	var callback uintptr
 	if runtime.GOARCH == "386" {
 		callback = windows.NewCallback(func(level loggerLevel, timestampLow, timestampHigh uint32, msg *uint16) int {
@@ -63,105 +59,120 @@ func setupLogger(dll *lazyDLL) {
 		callback = windows.NewCallback(func(level loggerLevel, _, timestampLow, timestampHigh uint32, msg *uint16) int {
 			return logMessage(level, uint64(timestampHigh)<<32|uint64(timestampLow), msg)
 		})
-	} else if runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64" {
-		callback = windows.NewCallback(logMessage)
+	} else {
+		callback = windows.NewCallback(logMessage) // amd64/arm64
 	}
-	syscall.Syscall(dll.NewProc("WintunSetLogger").Addr(), 1, callback, 0, 0)
+
+	_, _, _ = procWintunSetLogger.Call(callback)
 }
 
-func closeAdapter(wintun *Adapter) {
-	syscall.Syscall(procWintunCloseAdapter.Addr(), 1, wintun.handle, 0, 0)
+func ensureLoaded() error {
+	if err := modwintun.Load(); err != nil {
+		return err
+	}
+	setupLogger()
+	return nil
 }
 
-// CreateAdapter creates a Wintun adapter. name is the cosmetic name of the adapter.
-// tunnelType represents the type of adapter and should be "Wintun". requestedGUID is
-// the GUID of the created network adapter, which then influences NLA generation
-// deterministically. If it is set to nil, the GUID is chosen by the system at random,
-// and hence a new NLA entry is created for each new adapter.
+func closeAdapter(w *Adapter) {
+	_, _, _ = procWintunCloseAdapter.Call(w.handle)
+}
+
 func CreateAdapter(name string, tunnelType string, requestedGUID *windows.GUID) (wintun *Adapter, err error) {
-	var name16 *uint16
-	name16, err = windows.UTF16PtrFromString(name)
-	if err != nil {
-		return
-	}
-	var tunnelType16 *uint16
-	tunnelType16, err = windows.UTF16PtrFromString(tunnelType)
-	if err != nil {
-		return
-	}
-	if err := procWintunCreateAdapter.Find(); err != nil {
+	if err := ensureLoaded(); err != nil {
 		return nil, err
 	}
-	r0, _, e1 := syscall.Syscall(procWintunCreateAdapter.Addr(), 3, uintptr(unsafe.Pointer(name16)), uintptr(unsafe.Pointer(tunnelType16)), uintptr(unsafe.Pointer(requestedGUID)))
-	if r0 == 0 {
-		err = e1
-		return
+
+	name16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return nil, err
 	}
+	tunnelType16, err := windows.UTF16PtrFromString(tunnelType)
+	if err != nil {
+		return nil, err
+	}
+
+	r0, _, e1 := procWintunCreateAdapter.Call(
+		uintptr(unsafe.Pointer(name16)),
+		uintptr(unsafe.Pointer(tunnelType16)),
+		uintptr(unsafe.Pointer(requestedGUID)),
+	)
+	if r0 == 0 {
+		return nil, e1
+	}
+
 	wintun = &Adapter{handle: r0}
 	runtime.SetFinalizer(wintun, closeAdapter)
-	return
+	return wintun, nil
 }
 
-// OpenAdapter opens an existing Wintun adapter by name.
 func OpenAdapter(name string) (wintun *Adapter, err error) {
-	var name16 *uint16
-	name16, err = windows.UTF16PtrFromString(name)
-	if err != nil {
-		return
-	}
-	if err := procWintunOpenAdapter.Find(); err != nil {
+	if err := ensureLoaded(); err != nil {
 		return nil, err
 	}
-	r0, _, e1 := syscall.Syscall(procWintunOpenAdapter.Addr(), 1, uintptr(unsafe.Pointer(name16)), 0, 0)
-	if r0 == 0 {
-		err = e1
-		return
+
+	name16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return nil, err
 	}
+
+	r0, _, e1 := procWintunOpenAdapter.Call(uintptr(unsafe.Pointer(name16)))
+	if r0 == 0 {
+		return nil, e1
+	}
+
 	wintun = &Adapter{handle: r0}
 	runtime.SetFinalizer(wintun, closeAdapter)
-	return
+	return wintun, nil
 }
 
-// Close closes a Wintun adapter.
-func (wintun *Adapter) Close() (err error) {
-	if err := procWintunCloseAdapter.Find(); err != nil {
-		return err
+func (wintun *Adapter) Close() error {
+	if wintun == nil || wintun.handle == 0 {
+		return nil
 	}
+	_ = ensureLoaded()
+
 	runtime.SetFinalizer(wintun, nil)
-	r1, _, e1 := syscall.Syscall(procWintunCloseAdapter.Addr(), 1, wintun.handle, 0, 0)
+	r1, _, e1 := procWintunCloseAdapter.Call(wintun.handle)
 	if r1 == 0 {
-		err = e1
+		return e1
 	}
-	return
+	wintun.handle = 0
+	return nil
 }
 
-// Uninstall removes the driver from the system if no drivers are currently in use.
-func Uninstall() (err error) {
-	if err := procWintunDeleteDriver.Find(); err != nil {
+func Uninstall() error {
+	if err := ensureLoaded(); err != nil {
 		return err
 	}
-	r1, _, e1 := syscall.Syscall(procWintunDeleteDriver.Addr(), 0, 0, 0, 0)
+	r1, _, e1 := procWintunDeleteDriver.Call()
 	if r1 == 0 {
-		err = e1
+		return e1
 	}
-	return
+	return nil
 }
 
-// RunningVersion returns the version of the loaded driver.
-func RunningVersion() (version uint32, err error) {
-	if err := procWintunGetRunningDriverVersion.Find(); err != nil {
+func RunningVersion() (uint32, error) {
+	if err := ensureLoaded(); err != nil {
 		return 0, err
 	}
-	r0, _, e1 := syscall.Syscall(procWintunGetRunningDriverVersion.Addr(), 0, 0, 0, 0)
-	version = uint32(r0)
-	if version == 0 {
-		err = e1
+	r0, _, e1 := procWintunGetRunningDriverVersion.Call()
+	v := uint32(r0)
+	if v == 0 {
+		return 0, e1
 	}
-	return
+	return v, nil
 }
 
-// LUID returns the LUID of the adapter.
 func (wintun *Adapter) LUID() (luid uint64) {
-	syscall.Syscall(procWintunGetAdapterLUID.Addr(), 2, uintptr(wintun.handle), uintptr(unsafe.Pointer(&luid)), 0)
-	return
+	if wintun == nil || wintun.handle == 0 {
+		return 0
+	}
+	_ = ensureLoaded()
+
+	_, _, _ = procWintunGetAdapterLUID.Call(
+		wintun.handle,
+		uintptr(unsafe.Pointer(&luid)),
+	)
+	return luid
 }
