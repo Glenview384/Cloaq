@@ -20,7 +20,8 @@ import (
 	"os"
 	"runtime"
 
-	"cloaq/src/network"
+	"cloaq/src/routing"
+	"cloaq/src/tun"
 )
 
 func main() {
@@ -45,22 +46,22 @@ func runCommand() {
 	fmt.Println("Starting Cloaq...")
 	fmt.Println("GOOS:", runtime.GOOS, "GOARCH:", runtime.GOARCH)
 
-	tun, err := network.InitTunnel()
+	dev, err := tun.InitDevice()
 	if err != nil {
 		fmt.Println("Tunnel init error:", err)
 		return
 	}
-	if tun == nil {
+	if dev == nil {
 		fmt.Println("Tunnel initialized (no device object returned on this OS yet).")
 		fmt.Println("Cloaq running.")
 		select {}
 	}
 
-	defer tun.Close()
-	fmt.Println("Tunnel ready:", tun.Name())
+	defer dev.Close()
+	fmt.Println("Tunnel ready:", dev.Name())
 
 	// Integrated logic: Start the local tunnel processing
-	if err := tun.Start(); err != nil {
+	if err := dev.Start(); err != nil {
 		fmt.Println("Tunnel start error:", err)
 		return
 	}
@@ -68,13 +69,13 @@ func runCommand() {
 	fmt.Println("Reading packets from tunnel...")
 	// Start the ReadLoop in a goroutine so we can also run the router
 	go func() {
-		if err := network.ReadLoop(tun); err != nil {
+		if err := ReadLoop(dev); err != nil {
 			fmt.Println("ReadLoop error:", err)
 		}
 	}()
 
 	// Upstream logic: Initialize Router and start IPv6 listener
-	router := &Router{}
+	router := routing.NewRouter()
 
 	// Example static routes from upstream
 	router.AddRoute("2001:db8:1::/64", "eth0")
@@ -82,14 +83,7 @@ func runCommand() {
 
 	log.Println("IPv6 TUN gateway created")
 
-	// Use the file descriptor from the local 'tun' object
-	// Note: We need to ensure tun.File() or similar exists or we use the raw FD if accessible.
-	// Since 'tun' is from 'network.InitTunnel()', let's check what 'tun' is.
-	// For now, I'll use the logic that requires the FD.
-	// If 'tun' doesn't provide it easily, I might need to adjust 'network' package.
-
-	// Assuming tun is an interface or struct that might have a File() method returning *os.File
-	go CreateIPv6PacketListener(tun)
+	go routing.CreateIPv6PacketListener(dev)
 }
 
 func helpCommand() {

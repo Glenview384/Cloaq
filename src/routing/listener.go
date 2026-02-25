@@ -12,31 +12,32 @@
 // For commercial licensing inquiries or permissions beyond the scope of this
 // license, please create an issue in github.
 
-package main
+package routing
 
 import (
-	"crypto/ecdh"
-	"crypto/rand"
-	"encoding/hex"
+	"log"
+
+	"cloaq/src/tun"
 )
 
-type Identity struct {
-	PrivateKey *ecdh.PrivateKey
-	PublicKey  *ecdh.PublicKey
-}
+func CreateIPv6PacketListener(dev tun.Device) {
+	buf := make([]byte, 65535)
+	for {
+		n, err := dev.Read(buf)
+		if err != nil {
+			log.Println("tun.Read error:", err)
+			continue
+		}
 
-func (i *Identity) String() string {
-	return hex.EncodeToString(i.PublicKey.Bytes())
-}
+		pkt := buf[:n]
+		if len(pkt) < 40 {
+			continue
+		}
+		if (pkt[0] >> 4) != 6 {
+			continue
+		}
 
-func GenerateIdentity() (*Identity, error) {
-	identity := &Identity{}
-	pKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
+		payload := pkt[40:]
+		log.Printf("IPv6 packet: %d bytes, payload %d bytes\n", len(pkt), len(payload))
 	}
-	identity.PrivateKey = pKey
-	identity.PublicKey = pKey.Public().(*ecdh.PublicKey)
-
-	return identity, nil
 }

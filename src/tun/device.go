@@ -12,31 +12,18 @@
 // For commercial licensing inquiries or permissions beyond the scope of this
 // license, please create an issue in github.
 
-package main
+package tun
 
-import (
-	"crypto/ecdh"
-	"crypto/rand"
-	"encoding/hex"
-)
+import "os"
 
-type Identity struct {
-	PrivateKey *ecdh.PrivateKey
-	PublicKey  *ecdh.PublicKey
-}
+// Device reads/writes raw IPv4/IPv6 packets on the TUN interface
+type Device interface {
+	Name() string
+	Start() error
+	Close() error
 
-func (i *Identity) String() string {
-	return hex.EncodeToString(i.PublicKey.Bytes())
-}
+	Read(p []byte) (int, error)
+	Write(p []byte) (int, error)
 
-func GenerateIdentity() (*Identity, error) {
-	identity := &Identity{}
-	pKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	identity.PrivateKey = pKey
-	identity.PublicKey = pKey.Public().(*ecdh.PublicKey)
-
-	return identity, nil
+	File() *os.File //Optional, linux can provide an fd-backed os.File, wintun won't
 }
