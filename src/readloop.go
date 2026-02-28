@@ -15,28 +15,33 @@
 package main
 
 import (
-	"crypto/ecdh"
-	"crypto/rand"
-	"encoding/hex"
+	"log"
+
+	"cloaq/src/tun"
 )
 
-type Identity struct {
-	PrivateKey *ecdh.PrivateKey
-	PublicKey  *ecdh.PublicKey
-}
+// Reads packets from Tunnel, FOR NOW it's just logs basic info (IPv4/IPv6)
+func ReadLoop(dev tun.Device) error {
+	buf := make([]byte, 65535)
 
-func (i *Identity) String() string {
-	return hex.EncodeToString(i.PublicKey.Bytes())
-}
+	for {
+		n, err := dev.Read(buf)
+		if err != nil {
+			return err
+		}
+		pkt := buf[:n]
+		if len(pkt) < 1 {
+			continue
+		}
 
-func GenerateIdentity() (*Identity, error) {
-	identity := &Identity{}
-	pKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, err
+		ver := pkt[0] >> 4
+		switch ver {
+		case 6:
+			log.Printf("IPv6 packet: %d bytes\n", len(pkt))
+		case 4:
+			log.Printf("IPv4 packet: %d bytes\n", len(pkt))
+		default:
+			log.Printf("Unknown packet version %d: %d bytes\n", ver, len(pkt))
+		}
 	}
-	identity.PrivateKey = pKey
-	identity.PublicKey = pKey.Public().(*ecdh.PublicKey)
-
-	return identity, nil
 }

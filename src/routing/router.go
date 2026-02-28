@@ -12,31 +12,37 @@
 // For commercial licensing inquiries or permissions beyond the scope of this
 // license, please create an issue in github.
 
-package main
+package routing
 
-import (
-	"crypto/ecdh"
-	"crypto/rand"
-	"encoding/hex"
-)
+import "net"
 
-type Identity struct {
-	PrivateKey *ecdh.PrivateKey
-	PublicKey  *ecdh.PublicKey
+type Route struct {
+	Prefix *net.IPNet
+	OutIf  string
 }
 
-func (i *Identity) String() string {
-	return hex.EncodeToString(i.PublicKey.Bytes())
+type Router struct {
+	routes []Route
 }
 
-func GenerateIdentity() (*Identity, error) {
-	identity := &Identity{}
-	pKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+func NewRouter() *Router {
+	return &Router{}
+}
+
+func (r *Router) AddRoute(cidr, outIf string) error {
+	_, n, err := net.ParseCIDR(cidr)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	identity.PrivateKey = pKey
-	identity.PublicKey = pKey.Public().(*ecdh.PublicKey)
+	r.routes = append(r.routes, Route{Prefix: n, OutIf: outIf})
+	return nil
+}
 
-	return identity, nil
+func (r *Router) LookupRoute(dst net.IP) string {
+	for _, rt := range r.routes {
+		if rt.Prefix.Contains(dst) {
+			return rt.OutIf
+		}
+	}
+	return ""
 }
